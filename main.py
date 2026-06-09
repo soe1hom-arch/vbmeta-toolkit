@@ -247,7 +247,7 @@ def menu_check_all():
             
             if warnings:
                 status = f"{RED}[PATCHED - {', '.join(warnings)}]{RESET}"
-            elif vbmeta.algorithm_type != 0:
+            elif vbmeta.header.algorithm_type != 0:
                 status = f"{GREEN}[LOCKED - signed]{RESET}"
             else:
                 status = f"{YELLOW}[UNLOCKED - no signature]{RESET}"

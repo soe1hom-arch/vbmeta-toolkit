@@ -198,12 +198,39 @@ class AVBDescriptor:
         desc.raw_data = data[offset:offset + total_sz]
         
         # Extract partition name from descriptor data
-        # Common for hash/hashtree: starts after 16-byte header
-        # Name is null-terminated
+        # Hash/Hashtree descriptor layout (AOSP format):
+        #   [0]  image_size: uint64 (8 bytes)
+        #   [8]  hash_algorithm: char[32]
+        #   [40] partition_name_len: uint32 (4 bytes)
+        #   [44] salt_len: uint32
+        #   [48] digest_len: uint32
+        #   [52] flags: uint32
+        #   [56] partition_name: [partition_name_len]
+        #   ...  salt, digest
         desc_data = data[offset + 12:offset + total_sz]
-        name_end = desc_data.find(b'\x00')
-        if name_end >= 0:
-            desc.partition_name = desc_data[:name_end].decode('utf-8', errors='replace')
+        
+        # Method 1: Try structured hash/hashtree descriptor parsing
+        name = ""
+        if len(desc_data) > 56 and tag in (0, 1, 2, 3):
+            try:
+                name_len = struct.unpack_from(">I", desc_data, 40)[0]
+                if name_len > 0 and name_len < 256 and 56 + name_len <= len(desc_data):
+                    raw_name = desc_data[56:56 + name_len]
+                    name = raw_name.decode('utf-8', errors='replace').rstrip('\x00')
+            except:
+                pass
+        
+        # Method 2: Fallback ke null-terminated search
+        if not name:
+            name_end = desc_data.find(b'\x00')
+            if name_end >= 0:
+                # Skip past image_size(8) + hash_algorithm(32) if possible
+                if name_end > 40:  # Past this is the actual partition name field
+                    name = desc_data[:name_end].decode('utf-8', errors='replace')
+                else:
+                    name = desc_data[name_end + 1:desc_data.find(b'\x00', name_end + 1)].decode('utf-8', errors='replace')
+        
+        desc.partition_name = name
         
         return desc, offset + total_sz
     
@@ -213,7 +240,12 @@ class AVBDescriptor:
     def detail(self) -> str:
         name = DESCRIPTOR_NAMES.get(self.tag, f"Unknown Tag({self.tag})")
         text = f"  Tag: {self.tag} ({name})\n"
-        text += f"  Partition: {self.partition_name}"
+        if self.partition_name:
+            text += f"  Partition: {self.partition_name}"
+        else:
+            # Show hex preview of descriptor data to help diagnose
+            preview = self.raw_data[12:28].hex() if len(self.raw_data) > 12 else self.raw_data.hex()
+            text += f"  Data: {preview}..."
         return text
     
     def pack(self) -> bytes:
@@ -260,21 +292,33 @@ class VBMetaImage:
         # Parse descriptors
         offset = 0
         while offset < len(vbmeta.auxiliary_data):
-            if offset + 16 > len(vbmeta.auxiliary_data):
+            if offset + 12 > len(vbmeta.auxiliary_data):
                 break
-            tag = struct.unpack_from(">I", vbmeta.auxiliary_data, offset)[0]
-            if tag > 3:  # Unknown tag, stop
+            try:
+                tag = struct.unpack_from(">I", vbmeta.auxiliary_data, offset)[0]
+                num_following = struct.unpack_from(">Q", vbmeta.auxiliary_data, offset + 4)[0]
+            except:
                 break
-            desc, offset = AVBDescriptor.parse_from(vbmeta.auxiliary_data, offset)
-            vbmeta.descriptors.append(desc)
+            # Stop jika tag tidak dikenal atau num_following == 0 (padding)
+            if tag > 3 or num_following == 0:
+                break
+            try:
+                desc, offset = AVBDescriptor.parse_from(vbmeta.auxiliary_data, offset)
+                vbmeta.descriptors.append(desc)
+            except (ValueError, struct.error):
+                break
         
         return vbmeta
     
     def save(self, path: str | Path):
-        """Save vbmeta image to file."""
+        """Save vbmeta image to file dengan padding sesuai ukuran asli."""
         data = self.header.pack()
         data += self.authentication_data
         data += self.auxiliary_data
+        
+        # Padding ke ukuran asli (jika ada)
+        if self.original_size > 0 and len(data) < self.original_size:
+            data += b'\x00' * (self.original_size - len(data))
         
         Path(path).write_bytes(data)
     
