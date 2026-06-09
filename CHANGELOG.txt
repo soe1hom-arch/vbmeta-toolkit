@@ -1,0 +1,12 @@
+CHANGELOG - VBMeta Toolkit
+===========================
+
+v1.0 (2026-06-09)
+-----------------
+
+[+] Rilis awal
+    - Parse vbmeta image (header, flags, descriptors)
+    - Patch vbmeta (disable verity & verification)
+    - Check all vbmeta images sekaligus
+    - Export info vbmeta ke file teks
+    - Dibangun dari AOSP avbtool.py (platform/external/avb)

@@ -1,0 +1,2 @@
+# VBMeta Toolkit - Pure Python, no dependencies required
+# pyinstaller only needed for building binary
