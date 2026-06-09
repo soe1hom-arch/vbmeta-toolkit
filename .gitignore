@@ -1,0 +1,13 @@
+# Build
+build/
+dist/
+*.spec
+*.pyc
+
+# Binary release (download from releases page)
+vbmeta-tool
+
+# User data
+input/
+output/
+__pycache__/
